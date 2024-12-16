@@ -126,12 +126,6 @@ interface InputStream {
   void read(out float x);       /// ditto
   void read(out double x);      /// ditto
   void read(out real x);        /// ditto
-  void read(out ifloat x);      /// ditto
-  void read(out idouble x);     /// ditto
-  void read(out ireal x);       /// ditto
-  void read(out cfloat x);      /// ditto
-  void read(out cdouble x);     /// ditto
-  void read(out creal x);       /// ditto
   void read(out char x);        /// ditto
   void read(out wchar x);       /// ditto
   void read(out dchar x);       /// ditto
@@ -288,12 +282,6 @@ interface OutputStream {
   void write(float x);          /// ditto
   void write(double x);         /// ditto
   void write(real x);           /// ditto
-  void write(ifloat x);         /// ditto
-  void write(idouble x);        /// ditto
-  void write(ireal x);          /// ditto
-  void write(cfloat x);         /// ditto
-  void write(cdouble x);        /// ditto
-  void write(creal x);          /// ditto
   void write(char x);           /// ditto
   void write(wchar x);          /// ditto
   void write(dchar x);          /// ditto
@@ -351,6 +339,9 @@ interface OutputStream {
    * Print a formatted string into the stream using writef-style syntax.
    * References: <a href="std_format.html">std.format</a>.
    * Returns: self to chain with other stream commands like flush.
+   *
+   * NOTE: not supported in GDC, since it uses features unimplemented in that
+   * compiler.
    */
   OutputStream writef(...);
   OutputStream writefln(...); /// ditto
@@ -447,12 +438,6 @@ class Stream : InputStream, OutputStream {
   void read(out float x) { readExact(&x, x.sizeof); }
   void read(out double x) { readExact(&x, x.sizeof); }
   void read(out real x) { readExact(&x, x.sizeof); }
-  void read(out ifloat x) { readExact(&x, x.sizeof); }
-  void read(out idouble x) { readExact(&x, x.sizeof); }
-  void read(out ireal x) { readExact(&x, x.sizeof); }
-  void read(out cfloat x) { readExact(&x, x.sizeof); }
-  void read(out cdouble x) { readExact(&x, x.sizeof); }
-  void read(out creal x) { readExact(&x, x.sizeof); }
   void read(out char x) { readExact(&x, x.sizeof); }
   void read(out wchar x) { readExact(&x, x.sizeof); }
   void read(out dchar x) { readExact(&x, x.sizeof); }
@@ -1113,12 +1098,6 @@ class Stream : InputStream, OutputStream {
   void write(float x) { writeExact(&x, x.sizeof); }
   void write(double x) { writeExact(&x, x.sizeof); }
   void write(real x) { writeExact(&x, x.sizeof); }
-  void write(ifloat x) { writeExact(&x, x.sizeof); }
-  void write(idouble x) { writeExact(&x, x.sizeof); }
-  void write(ireal x) { writeExact(&x, x.sizeof); }
-  void write(cfloat x) { writeExact(&x, x.sizeof); }
-  void write(cdouble x) { writeExact(&x, x.sizeof); }
-  void write(creal x) { writeExact(&x, x.sizeof); }
   void write(char x) { writeExact(&x, x.sizeof); }
   void write(wchar x) { writeExact(&x, x.sizeof); }
   void write(dchar x) { writeExact(&x, x.sizeof); }
@@ -1230,10 +1209,17 @@ class Stream : InputStream, OutputStream {
 
   // writes data with optional trailing newline
   OutputStream writefx(TypeInfo[] arguments, va_list argptr, int newline=false) {
-    doFormat(&doFormatCallback,arguments,argptr);
-    if (newline)
-      writeLine("");
-    return this;
+    version (GNU)
+    {
+      assert(false, "GNU D compiler does not support doFormat");
+    }
+    else
+    {
+      doFormat(&doFormatCallback,arguments,argptr);
+      if (newline)
+        writeLine("");
+      return this;
+    }
   }
 
   /***
@@ -1433,7 +1419,7 @@ class Stream : InputStream, OutputStream {
 
   unittest { // unit test for Issue 3363
     import std.stdio;
-    immutable fileName = contrib.undead.internal.file.deleteme ~ "-issue3363.txt";
+    immutable fileName = undead.internal.file.deleteme ~ "-issue3363.txt";
     auto w = std.stdio.File(fileName, "w");
     scope (exit) std.file.remove(fileName);
     w.write("one two three");
@@ -1448,43 +1434,46 @@ class Stream : InputStream, OutputStream {
     assert (chars == "three", chars);
   }
 
-  unittest { //unit tests for Issue 1668
-    void tryFloatRoundtrip(float x, string fmt = "", string pad = "") {
-      auto s = new MemoryStream();
-      s.writef(fmt, x, pad);
-      s.position = 0;
+  version (GNU) {} else
+  {
+    unittest { //unit tests for Issue 1668
+      void tryFloatRoundtrip(float x, string fmt = "", string pad = "") {
+        auto s = new MemoryStream();
+        s.writef(fmt, x, pad);
+        s.position = 0;
 
-      float f;
-      assert(s.readf(&f));
-      assert(x == f || (x != x && f != f)); //either equal or both NaN
+        float f;
+        assert(s.readf(&f));
+        assert(x == f || (x != x && f != f)); //either equal or both NaN
+      }
+
+      tryFloatRoundtrip(1.0);
+      tryFloatRoundtrip(1.0, "%f");
+      tryFloatRoundtrip(1.0, "", " ");
+      tryFloatRoundtrip(1.0, "%f", " ");
+
+      tryFloatRoundtrip(3.14);
+      tryFloatRoundtrip(3.14, "%f");
+      tryFloatRoundtrip(3.14, "", " ");
+      tryFloatRoundtrip(3.14, "%f", " ");
+
+      float nan = float.nan;
+      tryFloatRoundtrip(nan);
+      tryFloatRoundtrip(nan, "%f");
+      tryFloatRoundtrip(nan, "", " ");
+      tryFloatRoundtrip(nan, "%f", " ");
+
+      float inf = 1.0/0.0;
+      tryFloatRoundtrip(inf);
+      tryFloatRoundtrip(inf, "%f");
+      tryFloatRoundtrip(inf, "", " ");
+      tryFloatRoundtrip(inf, "%f", " ");
+
+      tryFloatRoundtrip(-inf);
+      tryFloatRoundtrip(-inf,"%f");
+      tryFloatRoundtrip(-inf, "", " ");
+      tryFloatRoundtrip(-inf, "%f", " ");
     }
-
-    tryFloatRoundtrip(1.0);
-    tryFloatRoundtrip(1.0, "%f");
-    tryFloatRoundtrip(1.0, "", " ");
-    tryFloatRoundtrip(1.0, "%f", " ");
-
-    tryFloatRoundtrip(3.14);
-    tryFloatRoundtrip(3.14, "%f");
-    tryFloatRoundtrip(3.14, "", " ");
-    tryFloatRoundtrip(3.14, "%f", " ");
-
-    float nan = float.nan;
-    tryFloatRoundtrip(nan);
-    tryFloatRoundtrip(nan, "%f");
-    tryFloatRoundtrip(nan, "", " ");
-    tryFloatRoundtrip(nan, "%f", " ");
-
-    float inf = 1.0/0.0;
-    tryFloatRoundtrip(inf);
-    tryFloatRoundtrip(inf, "%f");
-    tryFloatRoundtrip(inf, "", " ");
-    tryFloatRoundtrip(inf, "%f", " ");
-
-    tryFloatRoundtrip(-inf);
-    tryFloatRoundtrip(-inf,"%f");
-    tryFloatRoundtrip(-inf, "", " ");
-    tryFloatRoundtrip(-inf, "%f", " ");
   }
 }
 
@@ -2139,7 +2128,7 @@ class File: Stream {
   unittest {
     File file = new File;
     int i = 666;
-    auto stream_file = contrib.undead.internal.file.deleteme ~ "-stream.$$$";
+    auto stream_file = undead.internal.file.deleteme ~ "-stream.$$$";
     file.create(stream_file);
     // should be ok to write
     assert(file.writeable);
@@ -2189,8 +2178,8 @@ class File: Stream {
     file.writeLine("That was blank");
     file.position = 0;
     char[][] lines;
-    foreach(char[] line; file) {
-      lines ~= line.dup;
+    foreach(char[] fileLine; file) {
+      lines ~= fileLine.dup;
     }
     assert( lines.length == 4 );
     assert( lines[0] == "Testing stream.d:");
@@ -2199,8 +2188,8 @@ class File: Stream {
     assert( lines[3] == "That was blank");
     file.position = 0;
     lines = new char[][4];
-    foreach(ulong n, char[] line; file) {
-      lines[cast(size_t)(n-1)] = line.dup;
+    foreach(ulong n, char[] fileLine; file) {
+      lines[cast(size_t)(n-1)] = fileLine.dup;
     }
     assert( lines[0] == "Testing stream.d:");
     assert( lines[1] == "Another line");
@@ -2257,7 +2246,7 @@ class BufferedFile: BufferedStream {
   unittest {
     BufferedFile file = new BufferedFile;
     int i = 666;
-    auto stream_file = contrib.undead.internal.file.deleteme ~ "-stream.$$$";
+    auto stream_file = undead.internal.file.deleteme ~ "-stream.$$$";
     file.create(stream_file);
     // should be ok to write
     assert(file.writeable);
@@ -2469,12 +2458,6 @@ class EndianStream : FilterStream {
   override void read(out float x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
   override void read(out double x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
   override void read(out real x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
-  override void read(out ifloat x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
-  override void read(out idouble x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
-  override void read(out ireal x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
-  override void read(out cfloat x) { readExact(&x, x.sizeof); fixBlockBO(&x,float.sizeof,2); }
-  override void read(out cdouble x) { readExact(&x, x.sizeof); fixBlockBO(&x,double.sizeof,2); }
-  override void read(out creal x) { readExact(&x, x.sizeof); fixBlockBO(&x,real.sizeof,2); }
   override void read(out char x) { readExact(&x, x.sizeof); }
   override void read(out wchar x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
   override void read(out dchar x) { readExact(&x, x.sizeof); fixBO(&x,x.sizeof); }
@@ -2524,12 +2507,6 @@ class EndianStream : FilterStream {
   override void write(float x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
   override void write(double x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
   override void write(real x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
-  override void write(ifloat x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
-  override void write(idouble x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
-  override void write(ireal x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
-  override void write(cfloat x) { fixBlockBO(&x,float.sizeof,2); writeExact(&x, x.sizeof); }
-  override void write(cdouble x) { fixBlockBO(&x,double.sizeof,2); writeExact(&x, x.sizeof); }
-  override void write(creal x) { fixBlockBO(&x,real.sizeof,2); writeExact(&x, x.sizeof);  }
   override void write(char x) { writeExact(&x, x.sizeof); }
   override void write(wchar x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
   override void write(dchar x) { fixBO(&x,x.sizeof); writeExact(&x, x.sizeof); }
@@ -2799,24 +2776,27 @@ class MemoryStream: TArrayStream!(ubyte[]) {
     assert (m.position == 42);
     m.position = 0;
     assert (m.available == 42);
-    m.writef("%d %d %s",100,345,"hello");
-    auto str = m.toString();
-    assert (str[0..13] == "100 345 hello", str[0 .. 13]);
-    assert (m.available == 29);
-    assert (m.position == 13);
+    version (GNU) {} else // writef not allowed in GNU
+    {
+      m.writef("%d %d %s",100,345,"hello");
+      auto str = m.toString();
+      assert (str[0..13] == "100 345 hello", str[0 .. 13]);
+      assert (m.available == 29);
+      assert (m.position == 13);
 
-    MemoryStream m2;
-    m.position = 3;
-    m2 = new MemoryStream ();
-    m2.writeString("before");
-    m2.copyFrom(m,10);
-    str = m2.toString();
-    assert (str[0..16] == "before 345 hello");
-    m2.position = 3;
-    m2.copyFrom(m);
-    auto str2 = m.toString();
-    str = m2.toString();
-    assert (str == ("bef" ~ str2));
+      MemoryStream m2;
+      m.position = 3;
+      m2 = new MemoryStream ();
+      m2.writeString("before");
+      m2.copyFrom(m,10);
+      str = m2.toString();
+      assert (str[0..16] == "before 345 hello");
+      m2.position = 3;
+      m2.copyFrom(m);
+      auto str2 = m.toString();
+      str = m2.toString();
+      assert (str == ("bef" ~ str2));
+    }
   }
 }
 
@@ -2852,7 +2832,7 @@ class MmFileStream : TArrayStream!(MmFile) {
 }
 
 unittest {
-  auto test_file = contrib.undead.internal.file.deleteme ~ "-testing.txt";
+  auto test_file = undead.internal.file.deleteme ~ "-testing.txt";
   MmFile mf = new MmFile(test_file,MmFile.Mode.readWriteNew,100,null);
   MmFileStream m;
   m = new MmFileStream (mf);

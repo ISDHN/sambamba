@@ -74,13 +74,6 @@ enum Mangle : char
     Tdouble   = 'd',
     Treal     = 'e',
 
-    Tifloat   = 'o',
-    Tidouble  = 'p',
-    Tireal    = 'j',
-    Tcfloat   = 'q',
-    Tcdouble  = 'r',
-    Tcreal    = 'c',
-
     Tchar     = 'a',
     Twchar    = 'u',
     Tdchar    = 'w',
@@ -125,12 +118,6 @@ private TypeInfo primitiveTypeInfo(Mangle m)
             Mangle.Tfloat : typeid(float),
             Mangle.Tdouble : typeid(double),
             Mangle.Treal : typeid(real),
-            Mangle.Tifloat : typeid(ifloat),
-            Mangle.Tidouble : typeid(idouble),
-            Mangle.Tireal : typeid(ireal),
-            Mangle.Tcfloat : typeid(cfloat),
-            Mangle.Tcdouble : typeid(cdouble),
-            Mangle.Tcreal : typeid(creal),
             Mangle.Tchar : typeid(char),
             Mangle.Twchar : typeid(wchar),
             Mangle.Tdchar : typeid(dchar)
@@ -403,6 +390,11 @@ void main()
  */
 void doFormat()(scope void delegate(dchar) putc, TypeInfo[] arguments, va_list ap)
 {
+    version (GNU)
+    {
+        static assert(false, "GNU D compiler does not support doFormat");
+    }
+
     import std.utf : encode, toUCSindex, isValidDchar, UTFException, toUTF8;
     import core.stdc.string : strlen;
     import core.stdc.stdlib : alloca, malloc, realloc, free;
@@ -491,7 +483,6 @@ void doFormat()(scope void delegate(dchar) putc, TypeInfo[] arguments, va_list a
         dchar vdchar;
         Object vobject;
         real vreal;
-        creal vcreal;
         Mangle m2;
         int signed = 0;
         uint base = 10;
@@ -824,35 +815,20 @@ void doFormat()(scope void delegate(dchar) putc, TypeInfo[] arguments, va_list a
                 goto Lnumber;
 
             case Mangle.Tfloat:
-            case Mangle.Tifloat:
                 if (fc == 'x' || fc == 'X')
                     goto Luint;
                 vreal = getArg!(float)();
                 goto Lreal;
 
             case Mangle.Tdouble:
-            case Mangle.Tidouble:
                 if (fc == 'x' || fc == 'X')
                     goto Lulong;
                 vreal = getArg!(double)();
                 goto Lreal;
 
             case Mangle.Treal:
-            case Mangle.Tireal:
                 vreal = getArg!(real)();
                 goto Lreal;
-
-            case Mangle.Tcfloat:
-                vcreal = getArg!(cfloat)();
-                goto Lcomplex;
-
-            case Mangle.Tcdouble:
-                vcreal = getArg!(cdouble)();
-                goto Lcomplex;
-
-            case Mangle.Tcreal:
-                vcreal = getArg!(creal)();
-                goto Lcomplex;
 
             case Mangle.Tsarray:
                 putArray(argptr, (cast(TypeInfo_StaticArray)ti).len, (cast(TypeInfo_StaticArray)ti).next);
@@ -1064,16 +1040,6 @@ void doFormat()(scope void delegate(dchar) putc, TypeInfo[] arguments, va_list a
 
     Lreal:
         putreal(vreal);
-        return;
-
-    Lcomplex:
-        putreal(vcreal.re);
-        if (vcreal.im >= 0)
-        {
-            putc('+');
-        }
-        putreal(vcreal.im);
-        putc('i');
         return;
 
     Lerror:
@@ -1305,8 +1271,9 @@ private bool needToSwapEndianess(Char)(ref FormatSpec!Char f)
         || endian == Endian.bigEndian && f.flDash;
 }
 
+version(GNU) {} else
 unittest
-{   
+{
     string res;
     void putc(dchar c)
     {
@@ -1315,7 +1282,7 @@ unittest
 
     void myPrint(...)
     {
-        doFormat(&putc, _arguments, _argptr);
+        undead.doformat.doFormat(&putc, _arguments, _argptr);
     }
 
     myPrint("The answer is %s:", 27, 6);

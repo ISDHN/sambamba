@@ -149,10 +149,10 @@ class CFile : Stream {
 
   // run a few tests
   unittest {
-    import contrib.undead.internal.file;
+    import undead.internal.file;
     import std.internal.cstring : tempCString;
 
-    auto stream_file = (contrib.undead.internal.file.deleteme ~ "-stream.txt").tempCString();
+    auto stream_file = (undead.internal.file.deleteme ~ "-stream.txt").tempCString();
     FILE* f = fopen(stream_file,"w");
     assert(f !is null);
     CFile file = new CFile(f,FileMode.Out);
@@ -203,8 +203,8 @@ class CFile : Stream {
     file.writeLine("That was blank");
     file.position = 0;
     char[][] lines;
-    foreach(char[] line; file) {
-      lines ~= line.dup;
+    foreach(char[] fileLine; file) {
+      lines ~= fileLine.dup;
     }
     assert( lines.length == 5 );
     assert( lines[0] == "Testing stream.d:");
@@ -213,8 +213,8 @@ class CFile : Stream {
     assert( lines[3] == "That was blank");
     file.position = 0;
     lines = new char[][5];
-    foreach(ulong n, char[] line; file) {
-      lines[cast(size_t)(n-1)] = line.dup;
+    foreach(ulong n, char[] fileLine; file) {
+      lines[cast(size_t)(n-1)] = fileLine.dup;
     }
     assert( lines[0] == "Testing stream.d:");
     assert( lines[1] == "Another line");
