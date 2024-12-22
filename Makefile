@@ -42,6 +42,7 @@ endif
 BIOD_PATH=./BioD:./BioD/contrib/msgpack-d/src
 DFLAGS      = -wi -I. -I$(BIOD_PATH) -g -J.
 LDFLAGS     = -L=-flto=full
+PREFIX      = /usr/local
 
 # DLIBS       = $(LIBRARY_PATH)/libphobos2-ldc.a $(LIBRARY_PATH)/libdruntime-ldc.a
 # DLIBS_DEBUG = $(LIBRARY_PATH)/libphobos2-ldc-debug.a $(LIBRARY_PATH)/libdruntime-ldc-debug.a
@@ -117,7 +118,7 @@ debug-strip:
 pgo-static: static debug-strip
 
 install:
-	install -m 0755 $(OUT) $(prefix)/bin
+	install -m 0755 $(OUT) $(PREFIX)/bin
 
 clean: clean-d
 	rm -f profile.data
