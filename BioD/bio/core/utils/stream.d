@@ -29,6 +29,7 @@ FileMode toFileMode(string mode) {
             break;
         case "r+", "r+b", "rb+":
             result = FileMode.In | FileMode.Out; // 1100
+            break;
         case "w", "wb":
             result = FileMode.OutNew; // 0110
             break;
