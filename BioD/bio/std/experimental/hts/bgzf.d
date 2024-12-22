@@ -87,6 +87,7 @@ alias ubyte[BLOCK_SIZE] BlockBuffer;
    Uncompress a zlib buffer (without header)
 */
 ubyte[] deflate(ubyte[] uncompressed_buf, const ubyte[] compressed_buf, size_t uncompressed_size, CRC32 crc32) {
+  static import bio.core.utils.zlib;
   assert(uncompressed_buf.length == BLOCK_SIZE);
   bio.core.utils.zlib.z_stream zs;
   zs.next_in = cast(typeof(zs.next_in))compressed_buf;
