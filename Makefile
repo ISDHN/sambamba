@@ -40,15 +40,15 @@ else
 endif
 
 BIOD_PATH=./BioD:./BioD/contrib/msgpack-d/src
-DFLAGS      = -wi -I. -I$(BIOD_PATH) -g -J.
+DFLAGS      = -wi -I. -I$(BIOD_PATH) --gc --fvisibility=public -J.
 LDFLAGS     = -L=-flto=full
 PREFIX      = /usr/local
 
 # DLIBS       = $(LIBRARY_PATH)/libphobos2-ldc.a $(LIBRARY_PATH)/libdruntime-ldc.a
 # DLIBS_DEBUG = $(LIBRARY_PATH)/libphobos2-ldc-debug.a $(LIBRARY_PATH)/libdruntime-ldc-debug.a
 # LIBS        = -L-L$(LIBRARY_PATH) -L-lpthread -L-lm -L-lz -L-llz4
-LIBS        = -L-lz -L-llz4
-LIBS_STATIC = -L-lz -L-llz4 -L-L$(LIBRARY_PATH) -L-lphobos2-ldc -L-ldruntime-ldc
+LIBS        = -L-lz -L-lpthread
+LIBS_STATIC = -L-llz4 -L-lphobos2-ldc -L-ldruntime-ldc
 SRC         = $(wildcard main.d utils/*.d thirdparty/*.d) $(wildcard BioD/contrib/undead/*.d BioD/contrib/undead/*/*.d) $(wildcard BioD/bio/*/*.d BioD/bio/*/*/*.d BioD/bio/*/*/*/*.d BioD/bio/*/*/*/*/*.d BioD/bio/*/*/*/*/*/*/*.d BioD/contrib/msgpack-d/src/msgpack/*.d) $(wildcard sambamba/*.d sambamba/*/*.d sambamba/*/*/*.d)
 OBJ         = $(SRC:.d=.o)
 OUT         = bin/sambamba-$(shell cat VERSION)
@@ -63,9 +63,9 @@ profile:                           DFLAGS += -fprofile-instr-generate=profile.ra
 
 coverage:                          DFLAGS += -cov
 
-release static pgo-static:         DFLAGS += -O3 -release -enable-inlining -boundscheck=off
+release static pgo-static:         DFLAGS += -O3 -release -enable-inlining -boundscheck=off -L-Bstatic $(LIBS_STATIC) -L-Bdynamic $(LIBS)
 
-static:                            DFLAGS += -static -L-Bstatic -link-defaultlib-shared=false $(LIBS_STATIC)
+static:                            DFLAGS += -static -L-Bstatic -link-defaultlib-shared=false $(LIBS_STATIC) $(LIBS)
 
 pgo-static:                        DFLAGS += -fprofile-instr-use=profile.data
 
@@ -101,7 +101,7 @@ singleobj: build-setup
 # ---- Link step
 $(OUT): singleobj
 	$(info linking...)
-	$(D_COMPILER) $(DFLAGS) $(LDFLAGS) -of=$(OUT) $(OUT).o $(LINK_OBJ) $(LIBS)
+	$(D_COMPILER) $(DFLAGS) $(LDFLAGS) -of=$(OUT) $(OUT).o $(LINK_OBJ)
 
 test: $(OUT)
 	$(OUT) --version
