@@ -262,7 +262,7 @@ final class IntegerFieldFilter(string op) : Filter
             mixin("return a.mate_position " ~ op ~ "_value;");
         case "template_length":
             mixin("return a.template_length " ~ op ~ "_value;");
-        case "ref_length":
+        case "reference_length":
             mixin("return a.reference_length " ~ op ~ "_value;");
         default:
             throw new Exception("unknown integer field '" ~ _fieldname ~ "'");
