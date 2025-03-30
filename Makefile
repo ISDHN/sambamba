@@ -40,8 +40,8 @@ else
 endif
 
 BIOD_PATH=./BioD:./BioD/contrib/msgpack-d/src
-DFLAGS      = -wi -I. -I$(BIOD_PATH) --gc --fvisibility=public -J.
-LDFLAGS     = -L=-flto=full
+DFLAGS      = -wi -I. -I$(BIOD_PATH) --gc --fvisibility=public -J. -mcpu=native
+LDFLAGS     = -L-flto=full
 PREFIX      = /usr/local
 
 # DLIBS       = $(LIBRARY_PATH)/libphobos2-ldc.a $(LIBRARY_PATH)/libdruntime-ldc.a
