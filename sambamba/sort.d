@@ -50,26 +50,37 @@ import sambamba.utils.common.overwrite;
 import sambamba.utils.common.tmpdir;
 import sambamba.utils.common.filtering;
 import sambamba.utils.common.file;
+import sambamba.utils.view.headerserializer;
+import sambamba.utils.view.alignmentrangeprocessor;
 
 import thirdparty.mergesort;
 
-void printUsage() {
+void printUsage()
+{
     stderr.writeln("Usage: sambamba-sort [options] <input.bam>");
     stderr.writeln();
     stderr.writeln("Options: -m, --memory-limit=LIMIT");
-    stderr.writeln("               approximate total memory limit for all threads (by default 2GB)");
+    stderr.writeln(
+        "               approximate total memory limit for all threads (by default 2GB)");
     stderr.writeln("         --tmpdir=TMPDIR");
-    stderr.writeln("               directory for storing intermediate files; default is system directory for temporary files");
+    stderr.writeln(
+        "               directory for storing intermediate files; default is system directory for temporary files");
     stderr.writeln("         -o, --out=OUTPUTFILE");
-    stderr.writeln("               output file name; if not provided, the result is written to a file with .sorted.bam extension");
+    stderr.writeln(
+        "               output file name; if not provided, the result is written to a file with .sorted.bam extension");
+    stderr.writeln("         -O, --output-format=FORMAT");
+    stderr.writeln("               output file format, s or b");
     stderr.writeln("         -n, --sort-by-name");
-    stderr.writeln("               sort by read name instead of coordinate (lexicographical order)");
+    stderr.writeln(
+        "               sort by read name instead of coordinate (lexicographical order)");
     stderr.writeln("         --sort-picard");
     stderr.writeln("               sort by query name like in picard");
     stderr.writeln("         -N, --natural-sort");
-    stderr.writeln("               sort by read name instead of coordinate (so-called 'natural' sort as in samtools)");
+    stderr.writeln(
+        "               sort by read name instead of coordinate (so-called 'natural' sort as in samtools)");
     stderr.writeln("         -M, --match-mates");
-    stderr.writeln("               pull mates of the same alignment together when sorting by read name");
+    stderr.writeln(
+        "               pull mates of the same alignment together when sorting by read name");
     stderr.writeln("         -l, --compression-level=COMPRESSION_LEVEL");
     stderr.writeln("               level of compression for sorted BAM, from 0 to 9");
     stderr.writeln("         -u, --uncompressed-chunks");
@@ -82,8 +93,10 @@ void printUsage() {
     stderr.writeln("               keep only reads that satisfy FILTER");
 }
 
-version(standalone) {
-    int main(string[] args) {
+version (standalone)
+{
+    int main(string[] args)
+    {
         return sort_main(args);
     }
 }
@@ -93,12 +106,14 @@ private __gshared bool natural_sort;
 private __gshared bool picard_sort;
 private __gshared bool match_mates;
 private bool show_progress;
+private char fmt;
 
 private shared(ProgressBar) bar;
 private shared(float[]) weights;
 private shared(float[]) merging_progress;
 
-class Sorter {
+class Sorter
+{
 
     BamReader bam;
     TaskPool task_pool;
@@ -110,34 +125,42 @@ class Sorter {
     string filename = null;
     string filter_str = null;
 
-    this() {
+    this()
+    {
         tmpdir = defaultTmpDir();
     }
 
-    struct UnsortedChunk {
+    struct UnsortedChunk
+    {
         size_t max_sz;
 
-        this(size_t max_total_size) {
+        this(size_t max_total_size)
+        {
             max_sz = max_total_size;
-            while (read_storage is null && max_sz > 65536) {
-                read_storage = cast(ubyte*)core.stdc.stdlib.malloc(max_sz);
+            while (read_storage is null && max_sz > 65536)
+            {
+                read_storage = cast(ubyte*) core.stdc.stdlib.malloc(max_sz);
                 if (read_storage is null)
-                  max_sz /= 2;
+                    max_sz /= 2;
             }
             _reads_capa = 1024;
             auto sz = BamRead.sizeof * _reads_capa;
-            _reads = cast(BamRead*)core.stdc.stdlib.malloc(sz);
-            if (_reads is null) {
+            _reads = cast(BamRead*) core.stdc.stdlib.malloc(sz);
+            if (_reads is null)
+            {
                 throw new Exception("alloc failed: no space for read pointers");
             }
         }
 
-        void clear() {
+        void clear()
+        {
             _used = 0;
             _n_reads = 0;
-            if (_low_memory) {
-                auto realloc_storage = cast(ubyte*)core.stdc.stdlib.realloc(read_storage, max_sz / 2);
-                if (realloc_storage !is null) {
+            if (_low_memory)
+            {
+                auto realloc_storage = cast(ubyte*) core.stdc.stdlib.realloc(read_storage, max_sz / 2);
+                if (realloc_storage !is null)
+                {
                     max_sz /= 2;
                     read_storage = realloc_storage;
                     stderr.writeln("reduced maximum buffer size to ", max_sz);
@@ -146,20 +169,27 @@ class Sorter {
             }
         }
 
-        void fill(R)(R* reads) {
-            while (!reads.empty) {
+        void fill(R)(R* reads)
+        {
+            while (!reads.empty)
+            {
                 auto read = reads.front;
                 auto len = read.raw_data.length;
                 if (len + _used > max_sz)
                     break;
 
-                if (_n_reads == _reads_capa) {
-                    auto realloc_reads = cast(BamRead*)core.stdc.stdlib.realloc(_reads, 2 * _reads_capa * BamRead.sizeof);
-                    if (realloc_reads is null) {
+                if (_n_reads == _reads_capa)
+                {
+                    auto realloc_reads = cast(BamRead*) core.stdc.stdlib.realloc(_reads, 2 * _reads_capa * BamRead
+                            .sizeof);
+                    if (realloc_reads is null)
+                    {
                         _low_memory = true;
                         stderr.writeln("realloc failed: system low on memory, limited to ", _reads_capa, " reads in buffer");
                         break;
-                    } else {
+                    }
+                    else
+                    {
                         _reads_capa *= 2;
                         _reads = realloc_reads;
                     }
@@ -174,15 +204,19 @@ class Sorter {
                 reads.popFront();
             }
 
-            if (_n_reads == 0) {
+            if (_n_reads == 0)
+            {
                 auto read = reads.front;
                 auto len = read.raw_data.length;
                 assert(len > max_sz);
                 _n_reads = 1;
-                auto realloc_storage = cast(ubyte*)core.stdc.stdlib.realloc(read_storage, len);
-                if (realloc_storage is null) {
+                auto realloc_storage = cast(ubyte*) core.stdc.stdlib.realloc(read_storage, len);
+                if (realloc_storage is null)
+                {
                     throw new Exception("realloc failed: not enough memory for read");
-                } else {
+                }
+                else
+                {
                     read_storage = realloc_storage;
                     max_sz = len;
                 }
@@ -194,12 +228,17 @@ class Sorter {
             }
         }
 
-        void free() {
+        void free()
+        {
             core.stdc.stdlib.free(read_storage);
             core.stdc.stdlib.free(_reads);
         }
 
-        BamRead[] reads() @property { return _reads[0 .. _n_reads]; }
+        BamRead[] reads() @property
+        {
+            return _reads[0 .. _n_reads];
+        }
+
         BamRead* _reads;
         size_t _reads_capa;
         size_t _n_reads;
@@ -209,37 +248,49 @@ class Sorter {
         bool _low_memory;
     }
 
-    static BamRead[] sortChunk(size_t n, BamRead[] chunk, TaskPool task_pool) {
-        version (development) {
-        StopWatch sw;
-        sw.start();
-        stderr.writeln("Sorting chunk #", n, "...");
+    static BamRead[] sortChunk(size_t n, BamRead[] chunk, TaskPool task_pool)
+    {
+        version (development)
+        {
+            StopWatch sw;
+            sw.start();
+            stderr.writeln("Sorting chunk #", n, "...");
         }
-        auto buf = cast(BamRead*)core.stdc.stdlib.malloc(chunk.length * BamRead.sizeof);
+        auto buf = cast(BamRead*) core.stdc.stdlib.malloc(chunk.length * BamRead.sizeof);
         BamRead[] tmp = buf[0 .. chunk.length];
-        scope (exit) core.stdc.stdlib.free(buf);
-        if (sort_by_name) {
+        scope (exit)
+            core.stdc.stdlib.free(buf);
+        if (sort_by_name)
+        {
             if (match_mates)
                 mergeSort!(compareReadNamesAndMates, false)(chunk, task_pool, tmp);
-            else    
+            else
                 mergeSort!(compareReadNames, false)(chunk, task_pool, tmp);
-        } else if (natural_sort) {
+        }
+        else if (natural_sort)
+        {
             if (match_mates)
                 mergeSort!(mixedCompareReadNamesAndMates, false)(chunk, task_pool, tmp);
             else
                 mergeSort!(mixedCompareReadNames, false)(chunk, task_pool, tmp);
-        } else if (picard_sort) {
+        }
+        else if (picard_sort)
+        {
             mergeSort!(compareReadNamesAsPicard, false)(chunk, task_pool, tmp);
-        } else {
+        }
+        else
+        {
             mergeSort!(compareCoordinatesAndStrand, false)(chunk, task_pool, tmp);
         }
-        version (development) {
-        stderr.writeln("Finished sorting of chunk #", n, " in ", sw.peek().seconds, "s");
+        version (development)
+        {
+            stderr.writeln("Finished sorting of chunk #", n, " in ", sw.peek().seconds, "s");
         }
         return chunk;
     }
 
-    void sort() {
+    void sort()
+    {
         auto filter = createFilterFromQuery(filter_str);
 
         createHeader();
@@ -248,28 +299,35 @@ class Sorter {
         bam.setBufferSize(buf_size);
         bam.assumeSequentialProcessing();
 
-        auto output_buffer_ptr = cast(ubyte*)core.stdc.stdlib.malloc(buf_size);
+        auto output_buffer_ptr = cast(ubyte*) core.stdc.stdlib.malloc(buf_size);
         output_buffer = output_buffer_ptr[0 .. buf_size];
-        scope(exit)core.stdc.stdlib.free(output_buffer_ptr);
+        scope (exit)
+            core.stdc.stdlib.free(output_buffer_ptr);
 
-        if (show_progress) {
+        if (show_progress)
+        {
             stderr.writeln("Writing sorted chunks to temporary directory...");
             bar = new shared(ProgressBar)();
             auto reads = bam.readsWithProgress(
-                                  (lazy float p){ bar.update(p); }
-                              );
+                (lazy float p) { bar.update(p); }
+            );
             auto filtered_reads = filtered(reads, filter);
             writeSortedChunks(filtered_reads);
             bar.finish();
-        } else {
+        }
+        else
+        {
             auto filtered_reads = filtered(bam.reads!withoutOffsets(), filter);
             writeSortedChunks(filtered_reads);
         }
 
-        scope(success) {
-            if (tmpfiles.length > 1) {
+        scope (success)
+        {
+            if (tmpfiles.length > 1)
+            {
                 // if length == 1, the file was moved
-                foreach (tmpfile; tmpfiles) {
+                foreach (tmpfile; tmpfiles)
+                {
                     remove(tmpfile);
                 }
             }
@@ -281,38 +339,46 @@ class Sorter {
             else
                 mergeSortedChunks!compareReadNames();
         else if (natural_sort)
-            if (match_mates)
-                mergeSortedChunks!mixedCompareReadNamesAndMates();
-            else
-                mergeSortedChunks!mixedCompareReadNames();
-        else if (picard_sort)
-            mergeSortedChunks!compareReadNamesAsPicard();
-        else
-            mergeSortedChunks!compareCoordinatesAndStrand();
+                    if (match_mates)
+                        mergeSortedChunks!mixedCompareReadNamesAndMates();
+                    else
+                        mergeSortedChunks!mixedCompareReadNames();
+                else if (picard_sort)
+                            mergeSortedChunks!compareReadNamesAsPicard();
+                        else
+                            mergeSortedChunks!compareCoordinatesAndStrand();
     }
 
-    private void createHeader() {
+    private void createHeader()
+    {
         header = bam.header;
-        header.sorting_order = (sort_by_name || natural_sort || picard_sort) ? SortingOrder.queryname :
-                                                                               SortingOrder.coordinate;
+        header.sorting_order = (sort_by_name || natural_sort || picard_sort) ? SortingOrder.queryname
+            : SortingOrder.coordinate;
     }
 
     private size_t k; // number of sorting tasks submitted
 
-    private void writeSortedChunks(R)(R reads_) {
+    private void writeSortedChunks(R)(R reads_)
+    {
         auto buf1 = UnsortedChunk(memory_limit / 2);
         auto buf2 = UnsortedChunk(memory_limit / 2);
-        scope(exit) { buf1.free(); buf2.free(); }
-
-        version (development) {
-        StopWatch sw;
-        sw.start();
-        scope(exit) {
-            sw.stop();
-            stderr.writeln("Wrote ", num_of_chunks, " sorted chunk",
-                           num_of_chunks == 1 ? "" : "s",
-                           " in ", sw.peek().seconds, " seconds");
+        scope (exit)
+        {
+            buf1.free();
+            buf2.free();
         }
+
+        version (development)
+        {
+            StopWatch sw;
+            sw.start();
+            scope (exit)
+            {
+                sw.stop();
+                stderr.writeln("Wrote ", num_of_chunks, " sorted chunk",
+                    num_of_chunks == 1 ? "" : "s",
+                    " in ", sw.peek().seconds, " seconds");
+            }
         }
 
         Task!(sortChunk, size_t, BamRead[], TaskPool)* sorting_task;
@@ -324,18 +390,20 @@ class Sorter {
         // 3) dump buf1
         // 4) sort buf2 in parallel with filling buf1
         // ...
-        while (!reads.empty) {
+        while (!reads.empty)
+        {
             buf1.clear();
-            version(development) {
-            stderr.writeln("Reading chunk #", k + 1);
-            StopWatch sw_inner;
-            sw_inner.start();
+            version (development)
+            {
+                stderr.writeln("Reading chunk #", k + 1);
+                StopWatch sw_inner;
+                sw_inner.start();
             }
             buf1.fill(&reads);
 
-            version(development)
-            stderr.writeln("Finished reading of chunk #", k + 1,
-                           " in ", sw_inner.peek().seconds, "s");
+            version (development)
+                stderr.writeln("Finished reading of chunk #", k + 1,
+                    " in ", sw_inner.peek().seconds, "s");
 
             BamRead[] sorted_reads;
             if (sorting_task !is null)
@@ -351,13 +419,15 @@ class Sorter {
             swap(buf1, buf2);
         }
 
-        version(development) stderr.writeln("waiting for the last sorting task...");
+        version (development)
+            stderr.writeln("waiting for the last sorting task...");
 
         if (sorting_task !is null)
             dump(sorting_task.yieldForce());
 
         // handle empty BAM file case
-        if (k == 0) {
+        if (k == 0)
+        {
             ++k;
             dump([]);
         }
@@ -367,8 +437,10 @@ class Sorter {
 
     // if there's more than one chunk, first call to dump will be when k == 2
     // because we first submit sorting task and only when dump previous chunk
-    private void dump(BamRead[] sorted_reads) {
-        version(development) {
+    private void dump(BamRead[] sorted_reads)
+    {
+        version (development)
+        {
             stderr.writeln("Dumping chunk #", num_of_chunks + 1, " to disk...");
             StopWatch sw;
             sw.start();
@@ -378,17 +450,21 @@ class Sorter {
 
         string fn;
 
-        if (k <= 1) {
+        if (k <= 1)
+        {
             level = compression_level;
             fn = output_filename;
-        } else {
+        }
+        else
+        {
             fn = tmpFile(chunkBaseName(filename, num_of_chunks), tmpdir);
             tmpfiles ~= fn;
         }
 
         auto stream = bufferedFile(fn, FileMode.OutNew, 0);
         stream.buffer = output_buffer;
-        scope(failure) stream.close();
+        scope (failure)
+            stream.close();
 
         // if there's only one chunk, we will write straight to the output file
         auto writer = scoped!BamWriter(stream, level, task_pool, 32_000_000);
@@ -402,39 +478,45 @@ class Sorter {
 
         writer.finish();
 
-        version(development)
-        stderr.writeln("Finished dumping of chunk #", num_of_chunks + 1,
-                       " in ", sw.peek().seconds, "s");
+        version (development)
+            stderr.writeln("Finished dumping of chunk #", num_of_chunks + 1,
+                " in ", sw.peek().seconds, "s");
 
         num_of_chunks += 1;
     }
 
-    private void mergeSortedChunks(alias comparator)() {
+    private void mergeSortedChunks(alias comparator)()
+    {
 
-        if (num_of_chunks <= 1) {
+        if (num_of_chunks <= 1)
+        {
             // dump() wrote it to destination already
             return;
         }
 
-        version(development) {
-        StopWatch sw;
-        sw.start();
-        scope(exit) {
-            sw.stop();
-            stderr.writeln("Merging took ", sw.peek().seconds, " seconds");
-        }
+        version (development)
+        {
+            StopWatch sw;
+            sw.start();
+            scope (exit)
+            {
+                sw.stop();
+                stderr.writeln("Merging took ", sw.peek().seconds, " seconds");
+            }
         }
 
         auto input_buf_size = min(16_000_000, memory_limit / 4 / num_of_chunks);
         auto output_buf_size = min(64_000_000, memory_limit / 6);
         auto stream = bufferedFile(output_filename, FileMode.OutNew,
-                                   output_buf_size);
-        scope(failure) stream.close();
+            output_buf_size);
+        scope (failure)
+            stream.close();
 
         alias ReturnType!(BamReader.readsWithProgress!withoutOffsets) AlignmentRangePB;
         auto alignmentranges = new AlignmentRangePB[num_of_chunks];
 
-        if (show_progress) {
+        if (show_progress)
+        {
             stderr.writeln("Merging sorted chunks...");
             float[] weights1;
             weights1.length = num_of_chunks;
@@ -443,49 +525,66 @@ class Sorter {
 
             bar = new shared(ProgressBar)();
 
-            foreach (i; 0 .. num_of_chunks) {
+            foreach (i; 0 .. num_of_chunks)
+            {
                 weights1[i] = std.file.getSize(tmpfiles[i]); // set file size as weight
             }
 
             normalize(weights1);
-            weights = cast(shared)weights1.dup();
+            weights = cast(shared) weights1.dup();
         }
 
-        foreach (i; 0 .. num_of_chunks) {
+        foreach (i; 0 .. num_of_chunks)
+        {
             auto bamfile = new BamReader(tmpfiles[i], task_pool);
             bamfile.setBufferSize(input_buf_size);
             bamfile.assumeSequentialProcessing();
             if (show_progress)
                 alignmentranges[i] = bamfile.readsWithProgress(
-                        // WTF is going on here? See this thread:
-                        // http://forum.dlang.org/thread/mailman.112.1341467786.31962.digitalmars-d@puremagic.com
-                        (size_t j) {
-                        return (lazy float progress) {
+                    // WTF is going on here? See this thread:
+                    // http://forum.dlang.org/thread/mailman.112.1341467786.31962.digitalmars-d@puremagic.com
+                    (size_t j) {
+                    return (lazy float progress) {
                         atomicStore(merging_progress[j], progress);
-                        synchronized (bar) {
-                        bar.update(dotProduct(merging_progress, weights));
+                        synchronized (bar)
+                        {
+                            bar.update(dotProduct(merging_progress, weights));
                         }
-                        };
-                        }(i));
+                    };
+                }(i));
             else
                 alignmentranges[i] = bamfile.readsWithProgress(null);
         }
 
-        auto writer = scoped!BamWriter(stream, compression_level, task_pool,
-                                       2 * output_buf_size);
-        writer.setFilename(output_filename);
-        scope(exit) writer.finish();
-        writer.writeSamHeader(header);
-        writer.writeReferenceSequenceInfo(bam.reference_sequences);
+        if (fmt == 'b')
+        {
+            auto writer = scoped!BamWriter(stream, compression_level, task_pool,
+                2 * output_buf_size);
+            writer.setFilename(output_filename);
+            scope (exit)
+                writer.finish();
+            writer.writeSamHeader(header);
+            writer.writeReferenceSequenceInfo(bam.reference_sequences);
 
-        foreach (read; nWayUnion!comparator(alignmentranges))
-            writer.writeRecord(read);
+            foreach (read; nWayUnion!comparator(alignmentranges))
+                writer.writeRecord(read);
+        }
+        else
+        {
+            auto output_file = std.stdio.File(output_filename, "w+");
+            scope (exit)
+                output_file.close();
+            (new HeaderSerializer(output_file, "sam")).writeln(bam.header);
+            auto samWriter = new SamSerializer(output_file, task_pool);
+            samWriter.process(nWayUnion!comparator(alignmentranges), bam);
+        }
 
         if (show_progress)
             bar.finish();
     }
 
-    private {
+    private
+    {
         SamHeader header;
 
         string[] tmpfiles; // temporary file names
@@ -493,54 +592,69 @@ class Sorter {
     }
 }
 
-int sort_main(string[] args) {
+int sort_main(string[] args)
+{
 
-    if (args.length < 2) {
+    if (args.length < 2)
+    {
         printUsage();
         return 0;
     }
 
-    try {
+    try
+    {
         string memory_limit_str = null;
         uint n_threads = totalCPUs;
 
         auto sorter = scoped!Sorter();
 
         getopt(args,
-               std.getopt.config.caseSensitive,
-               "memory-limit|m",        &memory_limit_str,
-               "tmpdir",                &sorter.tmpdir,
-               "out|o",                 &sorter.output_filename,
-               "sort-by-name|n",        &sort_by_name,
-               "natural-sort|N",        &natural_sort,
-               "sort-picard",           &picard_sort,
-               "match-mates|M",         &match_mates,
-               "uncompressed-chunks|u", &sorter.uncompressed_chunks,
-               "compression-level|l",   &sorter.compression_level,
-               "show-progress|p",       &show_progress,
-               "nthreads|t",            &n_threads,
-               "filter|F",              &sorter.filter_str);
+            std.getopt.config.caseSensitive,
+            "memory-limit|m", &memory_limit_str,
+            "tmpdir", &sorter.tmpdir,
+            "out|o", &sorter.output_filename,
+            "output-format|O", &fmt,
+            "sort-by-name|n", &sort_by_name,
+            "natural-sort|N", &natural_sort,
+            "sort-picard", &picard_sort,
+            "match-mates|M", &match_mates,
+            "uncompressed-chunks|u", &sorter.uncompressed_chunks,
+            "compression-level|l", &sorter.compression_level,
+            "show-progress|p", &show_progress,
+            "nthreads|t", &n_threads,
+            "filter|F", &sorter.filter_str);
 
-        if ((sort_by_name && (natural_sort || picard_sort)) || (natural_sort && picard_sort)) {
+        if ((sort_by_name && (natural_sort || picard_sort)) || (natural_sort && picard_sort))
+        {
             stderr.writeln("only one of -n and -N and -s parameters can be provided");
             return -1;
         }
 
-        if (match_mates && !(sort_by_name || natural_sort)) {
+        if (fmt != 'b' && fmt != 's')
+        {
+            stderr.writeln("Unsupport format:" ~ fmt);
+            return -1;
+        }
+
+        if (match_mates && !(sort_by_name || natural_sort))
+        {
             stderr.writeln("-M option only works in combination with either -n or -N");
             return -1;
         }
 
-        if (sorter.output_filename is null) {
+        if (sorter.output_filename is null)
+        {
             sorter.output_filename = setExtension(args[1], "sorted.bam");
         }
 
         protectFromOverwrite(args[1], sorter.output_filename);
         sorter.tmpdir = randomSubdir(sorter.tmpdir);
 
-        if (memory_limit_str !is null) {
+        if (memory_limit_str !is null)
+        {
             sorter.memory_limit = parseMemory(memory_limit_str);
-            if (sorter.memory_limit / max(n_threads, 1) < 100_000) {
+            if (sorter.memory_limit / max(n_threads, 1) < 100_000)
+            {
                 throw new Exception("memory limit per thread can't be less than 100Kb");
             }
         }
@@ -548,27 +662,37 @@ int sort_main(string[] args) {
         sorter.memory_limit = (sorter.memory_limit * 5) / 6;
 
         sorter.task_pool = new TaskPool(n_threads);
-        scope(exit) sorter.task_pool.finish();
+        scope (exit)
+            sorter.task_pool.finish();
         sorter.bam = new BamReader(args[1], sorter.task_pool);
         sorter.filename = args[1];
 
         import core.memory;
+
         GC.disable();
 
         sorter.sort();
 
-        try {
-          std.file.rmdirRecurse(sorter.tmpdir);
-        } catch (FileException e) {
-          // Ignore errors removing temporary directories, due to NFS failure under load
-          // https://github.com/chapmanb/bcbio-nextgen/issues/784
+        try
+        {
+            std.file.rmdirRecurse(sorter.tmpdir);
+        }
+        catch (FileException e)
+        {
+            // Ignore errors removing temporary directories, due to NFS failure under load
+            // https://github.com/chapmanb/bcbio-nextgen/issues/784
         }
 
         return 0;
-    } catch (Throwable e) {
-        version (development) {
+    }
+    catch (Throwable e)
+    {
+        version (development)
+        {
             throw e;
-        } else {
+        }
+        else
+        {
             stderr.writeln("sambamba-sort: ", e.msg);
         }
         return 1;
@@ -576,35 +700,39 @@ int sort_main(string[] args) {
 }
 
 /// parses \d+K, \d+M, \d+G
-size_t parseMemory(string str) {
+size_t parseMemory(string str)
+{
     auto initial_str = str.idup;
     size_t sz = 0;
-    while (!str.empty) {
+    while (!str.empty)
+    {
         if (isDigit(str[0]))
             sz *= 10, sz += str[0] - '0';
         else
             break;
         str = str[1 .. $];
     }
-    if (str.empty) return sz;
-    switch (str) {
-        case "K":
-        case "KiB":
-            return sz << 10;
-        case "KB":
-            return sz * 1_000;
-        case "M":
-        case "MiB":
-            return sz << 20;
-        case "MB":
-            return sz * 1_000_000;
-        case "G":
-        case "GiB":
-            return sz << 30;
-        case "GB":
-            return sz * 1_000_000_000;
-        default:
-            throw new Exception("couldn't parse --memory-limit option ", initial_str);
+    if (str.empty)
+        return sz;
+    switch (str)
+    {
+    case "K":
+    case "KiB":
+        return sz << 10;
+    case "KB":
+        return sz * 1_000;
+    case "M":
+    case "MiB":
+        return sz << 20;
+    case "MB":
+        return sz * 1_000_000;
+    case "G":
+    case "GiB":
+        return sz << 30;
+    case "GB":
+        return sz * 1_000_000_000;
+    default:
+        throw new Exception("couldn't parse --memory-limit option ", initial_str);
     }
 }
 
@@ -614,6 +742,7 @@ size_t parseMemory(string str) {
 ///     unsorted_fn - filename of unsorted BAM
 ///     chunk_num   - 0-based index of the chunk
 ///
-string chunkBaseName(string unsorted_fn, size_t chunk_num) {
+string chunkBaseName(string unsorted_fn, size_t chunk_num)
+{
     return baseName(unsorted_fn) ~ "." ~ to!string(chunk_num);
 }
