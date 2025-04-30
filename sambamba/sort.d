@@ -676,7 +676,14 @@ int sort_main(string[] args)
         sorter.task_pool = new TaskPool(n_threads);
         scope (exit)
             sorter.task_pool.finish();
-        sorter.bam = new BamReader(args[1], sorter.task_pool);
+        if (in_fmt == 'b')
+        {
+            sorter.bam = new BamReader(args[1], sorter.task_pool);
+        }
+        else
+        {
+            sorter.sam = new SamReader(args[1]);
+        }
         sorter.filename = args[1];
 
         import core.memory;
