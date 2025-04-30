@@ -22,6 +22,7 @@ module sambamba.sort;
 import bio.std.hts.bam.reader;
 import bio.std.hts.bam.writer;
 import bio.std.hts.sam.header;
+import bio.std.hts.sam.reader;
 import bio.std.hts.bam.read;
 import bio.std.hts.bam.splitter;
 import bio.core.utils.tmpfile;
@@ -106,7 +107,8 @@ private __gshared bool natural_sort;
 private __gshared bool picard_sort;
 private __gshared bool match_mates;
 private bool show_progress;
-private char fmt;
+private char out_fmt;
+private char in_fmt;
 
 private shared(ProgressBar) bar;
 private shared(float[]) weights;
@@ -116,6 +118,7 @@ class Sorter
 {
 
     BamReader bam;
+    SamReader sam;
     TaskPool task_pool;
     size_t memory_limit = 2u * 1024 * 1024 * 1024;
     string tmpdir;
@@ -296,29 +299,28 @@ class Sorter
         createHeader();
 
         size_t buf_size = 16_000_000;
-        bam.setBufferSize(buf_size);
-        bam.assumeSequentialProcessing();
+        if (in_fmt == 'b')
+        {
+            bam.setBufferSize(buf_size);
+            bam.assumeSequentialProcessing();
+        }
+        else
+        {
+            sam.assumeSequentialProcessing();
+        }
 
         auto output_buffer_ptr = cast(ubyte*) core.stdc.stdlib.malloc(buf_size);
         output_buffer = output_buffer_ptr[0 .. buf_size];
         scope (exit)
             core.stdc.stdlib.free(output_buffer_ptr);
 
-        if (show_progress)
+        if (in_fmt == 'b')
         {
-            stderr.writeln("Writing sorted chunks to temporary directory...");
-            bar = new shared(ProgressBar)();
-            auto reads = bam.readsWithProgress(
-                (lazy float p) { bar.update(p); }
-            );
-            auto filtered_reads = filtered(reads, filter);
-            writeSortedChunks(filtered_reads);
-            bar.finish();
+            writeSortedChunks(filtered(bam.reads!withoutOffsets(), filter));
         }
         else
         {
-            auto filtered_reads = filtered(bam.reads!withoutOffsets(), filter);
-            writeSortedChunks(filtered_reads);
+            writeSortedChunks(filtered(sam.reads, filter));
         }
 
         scope (success)
@@ -351,7 +353,7 @@ class Sorter
 
     private void createHeader()
     {
-        header = bam.header;
+        header = in_fmt == 'b' ? bam.header : sam.header;
         header.sorting_order = (sort_by_name || natural_sort || picard_sort) ? SortingOrder.queryname
             : SortingOrder.coordinate;
     }
@@ -471,7 +473,8 @@ class Sorter
         writer.setFilename(fn);
 
         writer.writeSamHeader(header);
-        writer.writeReferenceSequenceInfo(bam.reference_sequences);
+        writer.writeReferenceSequenceInfo(in_fmt == 'b' ? bam.reference_sequences
+                : sam.reference_sequences);
 
         foreach (read; sorted_reads)
             writer.writeRecord(read);
@@ -556,7 +559,7 @@ class Sorter
                 alignmentranges[i] = bamfile.readsWithProgress(null);
         }
 
-        if (fmt == 'b')
+        if (out_fmt == 'b')
         {
             auto writer = scoped!BamWriter(stream, compression_level, task_pool,
                 2 * output_buf_size);
@@ -564,7 +567,8 @@ class Sorter
             scope (exit)
                 writer.finish();
             writer.writeSamHeader(header);
-            writer.writeReferenceSequenceInfo(bam.reference_sequences);
+            writer.writeReferenceSequenceInfo(in_fmt == 'b' ? bam.reference_sequences
+                    : sam.reference_sequences);
 
             foreach (read; nWayUnion!comparator(alignmentranges))
                 writer.writeRecord(read);
@@ -574,9 +578,10 @@ class Sorter
             auto output_file = std.stdio.File(output_filename, "w+");
             scope (exit)
                 output_file.close();
-            (new HeaderSerializer(output_file, "sam")).writeln(bam.header);
+            (new HeaderSerializer(output_file, "sam")).writeln(in_fmt == 'b' ? bam.header
+                    : sam.header);
             auto samWriter = new SamSerializer(output_file, task_pool);
-            samWriter.process(nWayUnion!comparator(alignmentranges), bam);
+            samWriter.process(nWayUnion!comparator(alignmentranges), in_fmt == 'b' ? bam : sam);
         }
 
         if (show_progress)
@@ -613,7 +618,8 @@ int sort_main(string[] args)
             "memory-limit|m", &memory_limit_str,
             "tmpdir", &sorter.tmpdir,
             "out|o", &sorter.output_filename,
-            "output-format|O", &fmt,
+            "output-format|O", &out_fmt,
+            "input-format|I", &in_fmt,
             "sort-by-name|n", &sort_by_name,
             "natural-sort|N", &natural_sort,
             "sort-picard", &picard_sort,
@@ -630,9 +636,15 @@ int sort_main(string[] args)
             return -1;
         }
 
-        if (fmt != 'b' && fmt != 's')
+        if (out_fmt != 'b' && out_fmt != 's')
         {
-            stderr.writeln("Unsupport format:" ~ fmt);
+            stderr.writeln("Unsupport format:" ~ out_fmt);
+            return -1;
+        }
+
+        if (in_fmt != 'b' && in_fmt != 's')
+        {
+            stderr.writeln("Unsupport format:" ~ in_fmt);
             return -1;
         }
 
